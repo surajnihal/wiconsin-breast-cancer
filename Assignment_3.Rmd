@@ -1,0 +1,489 @@
+---
+title: "Assignment 3"
+author: "Suraj Nihal"
+date: "2023-08-13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE)
+```
+
+
+## Libraries and Dataset
+
+```{r}
+
+library(foreign)
+library(dplyr)
+library(CCA)
+library(yacca)
+library(MASS)
+library(Hmisc)
+library(psych)
+library(ggplot2)
+library(corrplot)
+library(DescTools)
+library(REdaS)
+library(fmsb)
+library(ca)
+library(vcd)
+library(readxl)
+
+responses <- read.csv("~/Desktop/DePaul/DSC 424/Week 2/responses.csv")
+data <- read.csv("~/Downloads/data.csv")
+travels <- read_excel("~/Downloads/travels.xlsx", 
+    col_types = c("text", "numeric", "numeric", 
+        "numeric", "skip", "skip", "skip", 
+        "skip", "skip", "skip", "skip"), 
+    n_max = 4)
+
+```
+
+# Problem 1 
+
+I will be applying Common Factor Analysis on the Breast Cancer Dataset -
+
+## Introduction 
+
+Determining dimensions of Breast Cancer using Common Factor Analysis (CFA) \newline
+First we will discover and visualize the data to gain insights then we will apply Common factor analysis (CFA) to determine which features effect Breast Cancer the most \newline
+
+The Dataset \newline
+The Breast Cancer (Wisconsin) Diagnosis dataset contains the diagnosis and a set of 30 features describing the characteristics of the cell nuclei present in the digitized image of a fine needle aspirate (FNA) of a breast mass. \newline
+
+Attribute Information:
+
+1) ID number \newline
+2) Diagnosis (M = malignant, B = benign) \newline
+
+Ten real-valued features are computed for each cell nucleus: \newline
+
+a) radius (mean of distances from center to points on the perimeter) \newline
+b) texture (standard deviation of gray-scale values) \newline
+c) perimeter \newline
+d) area \newline
+e) smoothness (local variation in radius lengths) \newline
+f) compactness (perimeter^2 / area - 1.0) \newline
+g) concavity (severity of concave portions of the contour) \newline
+h) concave points (number of concave portions of the contour) \newline
+i) symmetry \newline
+j) fractal dimension ("coastline approximation" - 1)  \newline
+
+The mean, standard error and "worst" or largest (mean of the three largest values) of these features were computed for each image, resulting in 30 features. For instance, field 3 is Mean Radius, field 13 is Radius SE, field 23 is Worst Radius. \newline
+All feature values are re-coded with four significant digits [1]
+
+Fine Needle Aspiration of the Breast \newline
+According to the American Cancer Society website, during a fine needle aspiration (FNA), a small amount of breast tissue or fluid is removed from a suspicious area with a thin, hollow needle and checked for cancer cells. This type of biopsy is sometimes an option if other tests show you might have breast cancer (although a core needle biopsy is often preferred) [2]
+
+## Data Cleaning and Inspection
+
+```{r}
+#Checking Sample Size and Number of Variables
+dim(data)
+#569-Sample Size and 34 variables
+```
+
+```{r}
+#Showing head of the dataset
+head(data, 3)
+```
+
+```{r}
+#Showing summary of the dataset
+summary(data)
+```
+
+```{r}
+#Showing structure of the dataset
+str(data)
+```
+
+```{r}
+#Checking for missing values 
+colSums(is.na(data))
+#569 total missing values were found in X variable 
+```
+
+```{r}
+
+#Treating Missing Values 
+
+#Sub-setting out the X variable and saving in a new dataframe
+data_clean <- data[,1:32]
+
+#Checking if new data has any missing values 
+colSums(is.na(data_clean))
+#no missing values found 
+```
+
+```{r}
+#Removing the ID column 
+wbcd <- data_clean[,2:32]
+
+#converting the diagnosis variable into a factor 
+wbcd$diagnosis <- factor(ifelse(wbcd$diagnosis=='B',"Bening","Malignant"))
+
+#now converting diagnosis as a double - 1 if Malignant and 0 if Benign 
+wbcd_n <- wbcd %>%
+  mutate_at(vars(diagnosis), as.double) %>%
+  mutate(diagnosis = diagnosis - 1)
+
+
+#checking the structure of the new dataframe
+str(wbcd_n)
+#all numeric variables
+```
+
+Now we know the data is clean and we can run some Visualization and Analysis 
+
+## Data Visualization 
+
+Distribution of the diagnosis variable -
+
+```{r}
+#visualizing the diagnosis variable
+p1 <- ggplot(wbcd, aes(x = diagnosis, fill = diagnosis)) +
+  geom_bar(stat = "count", position = "stack", show.legend = FALSE) +
+  theme_minimal(base_size = 16) +
+  geom_label(stat = "count", aes(label = after_stat(count)), position = position_stack(vjust = 0.5),
+             size = 5, show.legend = FALSE)
+
+p1 +
+  ggtitle("Distribution of the Diagnosis variable")
+
+```
+
+After looking at the distribution we notice that the diagnosis variable is biased.
+
+## Correlation Analysis 
+
+In this correlation matrix, correlation coefficients which has a p-value less than 0.05 are marked with a cross (which means they are significant).
+
+```{r}
+#checking the correlation matrix
+cor(wbcd_n) %>%
+  corrplot(method = "circle", type = "lower", tl.col = "black", tl.srt = 45, p.mat = cor.mtest(wbcd_n)$p, sig.level = 0.05)
+```
+
+We notice that many of the independent variables are very strongly correlated, which suggests that there is multicollinearity.
+
+## Descriptive Analysis 
+
+```{r}
+#showing descriptive analysis for the numeric dataframe
+describe(wbcd_n)
+```
+
+We see that radius_se (3.07), perimeter_se (3.43), area_se(5.42), concavity_se (5.08) and fractal_dimension_se (3.90) are some of the highly skewed variables. \newline
+We see observe that texture_worse(0.50) and diagnosis(0.53) are approximately symmetric. \newline
+The highest mean values were found for area_mean (654.89), area_worst (880.58) and perimeter_worst (107.26). \newline
+The lowest mean values was for fractal_dimension_se (0.00).
+
+## Statstical Analysis
+
+Before running Factor Analysis, we need to check for the factoribility of the dataset by running the below tests
+
+```{r}
+#Testing KMO Sampling Adequacy 
+KMO(wbcd_n)
+#Overall MSA = 0.84
+```
+
+```{r}
+#Testing Bartlett's Test of Sphericity
+bart_spher(wbcd_n)
+#p-value < 2.22e-16
+```
+
+```{r}
+#Checking the Cronbach's Alpha
+CronbachAlpha(wbcd_n)
+#raw_alpha = 0.58
+```
+
+The KMO Sampling Test gave us a MSA value of 0.84, which confirms that the sample used is sufficient. \newline
+We see the the Bartlett's Test of Sphericity has a p-value of less than 0.05 demonstrating that the correlation matrix is not an identity matrix, therefore providing justification to use Factor Analysis. \newline
+Usual we accept a sample only when the Cronbach's alpha is greater than 0.6 but I am making an exception with my dataset.
+
+## Parallel Analysis 
+
+Parallel Analysis can helps us determine how many factors we need to use in factor analysis. \newline
+Parallel Analysis can be used as a guess and not a final answer, it gives us something to get started. \newline
+
+```{r}
+
+#running parallel analysis
+comp <- fa.parallel(wbcd_n) 
+comp
+
+```
+
+Parallel Analysis suggests that we should be using 6 factors but let's take a look at eigenvalues which are greater than 1
+
+```{r}
+#checking for eigenvalues which are greater than 1
+sum(comp$fa.values>1)
+```
+
+Now since we know that there are four factors which have eigenvalues that are greater than 1, we will start by using 4 factors
+
+## Common Factor Analysis 
+
+```{r}
+#Conducting factor analysis 
+fit = factanal(wbcd_n[,-1], 4, rotation = "varimax", lower = 0.1)
+print(fit$loadings, cutoff=0.5, sort=T)
+#Displaying the summary
+summary(fit)
+```
+
+Interpretation -
+
+The variables with high factor loadings in Factor 1 are radius, parameter and area which are related to the size of the nucleus. The larger these variables are, the larger these values become. \newline
+The variables with high factor loadings in Factor 2 are those related to the distortion of the contour of the cell nucleus, such as fractal_dimension, smoothness, compactness and concavity. \newline
+The variable with highest factor loading in Factor 3 is smoothness_se which drives the Factor 3. \newline
+The variables with high factor loadings in Factor 4 are mainly related to texture and larger these values are, the larger these values become. \newline
+We also observe some cross-loadings between Factor 1 and Factor 2 and Factor 3 and Factor 4. \newline
+The four factors explain 75% of the variance. \newline
+
+Names of the components -
+
+Factor 1 - size, as it speaks about how large a nuclei is \newline
+Factor 2 - distortion, as it describes the distorted cells outline \newline
+Factor 3 - variety, as it tells us the variety of cell nuclei \newline
+Factor 4 - texture, as it talks about the texture of the nuclei \newline
+
+## Conclusion
+
+We arrive at a conclusion that there are four main characteristics which are needed to detect breast cancer and among these four characteristics, size is one of the most important characteristics to consider. \newline
+In actual medical practice, the degree of “nuclear atypia” of cells is used to classify the malignancy of breast cancer. The larger the cell nucleus, the more chromatin is increased and unevenly distributed, and the more distorted the nuclear outline, the more abnormal the cell is considered to be. [3] \newline
+The above mentioned study confirms are findings.
+
+# Problem 2
+
+## F
+
+Canonical correlation analyzes the relationship between two sets of variables in which each set contains two or more varaibles. \newline
+Their data uses two different sets of variables (Labor Market Indicators and Quality of Life) which contain two or more variables. \newline
+Which means that the data is suitable for canonical correaltion analysis. \newline
+
+## G
+
+They are applying cannonical correlation to examine the relationship between current OECD data, labor market indicators and quality of life. \newline
+The two groups of variables which are being correlated are Labor Market Indicators and Qualtiy of Life. \newline
+The data used is metric. \newline
+
+## H
+
+They use the following methods to judge the quality of the correlation: \newline
+1. Wilks’ lambda \newline
+2. Pillai’s trace \newline
+3. Lawley-Hotelling trace \newline
+4. Roy’s largest root \newline
+
+They did not enter the data from previous PCA or Factor Analsyis so they don't check for stability/factoribility \newline
+But if they would have got the componets/factors from PCA or Factor Analysis then they would have to check for KMO Sampling Adequacy,  Barlett's test of Sphericity and Cronbach's Alpha \newline
+
+## I
+
+They concentrate on seven correlates in total \newline
+The labor market indicators variable set consists of labor market insecurity, employment rate, long-term unemployment rate and personal earnings. \newline
+As the dependent variable, life expectancy, self-reported health and life satisfaction variables define the quality of life variable set. \newline
+No they not interpret the correaltes in terms of their original values, while coding they use X1(Labor Market Insecurity), X2(Employment Rate), X3(Long-term Unemployment Rate) and X4 (Personel Earnings) varible names for Labor Market indicators which is also indicated by U and \newline
+Y1(Life Expectancy), Y2(Self-reported Health) and Y3(Life Satisfaction) for Quality of Life which is laso indictaed by V. \newline
+Yes they mention that there is a negative correlation between labor market indicators and labor market insecurity (-0.5733) and long-term unemployment rate (-0.3828), and there is a positive correlation between employment rate (0.5537) and personal earnings (0.9626). \newline
+The life satisfaction (0.8408) variable contributed the most in obtaining the canonical variable of quality of life. \newline
+There is a positive correlation between quality of life and life expectancy (0.7537), self-reported health (0.555) and life satisfaction (0.8408). \newline
+There is a strong positive relationship between labor market indicators and quality of life canonical variables (Rc=0.8117). In other words, as the labor market indicators improve, quality of life will also improve. \newline
+
+## J
+
+They found three important findings - \newline
+
+1. The results show that two canonical groups are formed. The first of these groups is labor market indicators, while the second is quality of life indicators. When the labor market indicators are examined, it has been observed that the variables “job-related earnings” and “employment rate” have a positive effect on the labor market variable, while the variables “labor market insecurity” and “long-term unemployment rate” have a negative effect on labor market indicators. It has also been determined that the most dominant variable for the labor market indicators variable is “job-related earnings”. Accordingly, income is the most important indicator of the labor market in terms of enabling the individual to express himself, to be present in social life and self-realization. \newline
+
+2. Another finding obtained as a result of the study is; the variables of “life satisfaction”, “life expectancy” and “self-reported health” constitute the quality of life variable, respectively, and all of the aforementioned variables positively affect the variable of quality of life. Here, too, the striking finding is the dominant character of life satisfaction. Accordingly, the most important indicator of quality of life was determined as life satisfaction.  \newline
+
+3. The last finding obtained as a result of the study is that there is a strong and same-sided relationship between “labor market indicators” and “quality of life”. Improvements in job-related earnings and employment rate, long-term unemployment rate and insecurity in labor markets in a country move together with variables related to an individual's life satisfaction, expected lifespan and self-reported health. In other words, work depends on life and life depends on work. \newline
+
+# Problem 3
+
+## 1
+
+Basic Analysis 
+
+```{r}
+#Check Sample Size and Number of Variables
+dim(responses)
+#1,010-Sample Size and 150 variables
+```
+
+```{r}
+#Checking for Missing Values 
+sum(is.na(responses))
+#571 total missing values 
+```
+
+```{r}
+
+#Treating Missing Values
+responses2 <- na.omit(responses)
+
+#Checking new data has no missing data
+sum(is.na(responses2))
+#no missing values
+```
+
+```{r}
+#Creating new subsets of data (Numeric Variables Only)
+responses3 <- responses2[,c(1:73,76,77:107,110:132,134:140,141:144)]
+
+music <- responses2[,1:19]
+movie <- responses2[,20:31]
+hobbies_interests <- responses2[,32:63]
+phobias <- responses2[,64:73]
+health <- responses2[,76]
+personality_views_opinions <- responses2[,c(77:107,110:132)]
+spending <- responses2[,134:140]
+demographics <- responses2[,141:144]
+
+```
+
+Canonical Correlation Analysis between Money and Spending -
+
+```{r}
+#Running CCA and displaying the summary
+c = cca(music,spending)
+summary(c)
+```
+
+A. \newline
+When we look at the Bartlett's Chi-Squared Test, we reject the null hypothesis that the canonical correlations are all equal to zero and accept the alternate hypothesis that at least one of the canonical correlations  are not equal to zero for the Correlation Functions - CV1, CV2, CV3 and CV4. \newline
+For CV5, CV6 and and CV7, we fail to reject the null hypothesis as their p-value is less than 0.05 \newline
+CV 1 has a d.f. of 133 and p-value of < 2.2e-16 \newline
+CV 2 has a d.f. of 108 and p-value of 1.566e-10 \newline
+CV 3 has a d.f. of  85 and p-value of 9.883e-05 \newline
+CV 4 has a d.f. of  64 and p-value of   0.02403 \newline
+CV 5 has a d.f. of  45 and p-value of   0.07788 \newline
+CV 6 has a d.f. of  28 and p-value of   0.26824 \newline
+CV 7 has a d.f. of  13 and p-value of   0.41342 \newline
+
+B. \newline
+There are four significant canonical variables - CV1, CV2, CV3 and CV4. \newline
+These variables are significant because they have a p-value of less than 0.05 \newline
+
+C. \newline
+The first two canonical correlations are - 
+CV 1 which has 46% of overlapping variance between the canonical variate pairs. \newline
+CV 2 which has 34% of overlapping variance between the canonical variate pairs. \newline
+
+D. \newline
+We can conclude that -
+CV 1 has 46% overlapping variance between music and spending. \newline
+CV 2 has 34% overlapping variance between music and spending. \newline
+We have four significant variables that we could use for our analysis. \newline
+CV 1 has the highest amount of information, followed by CV2. \newline
+
+## 2
+
+A. \newline
+
+The below mentioned formulas are from the Canonical Variate Coefficients - 
+
+Formula for Music: \newline
+
+CV 1 = Music (0.37476949) + Slow.songs.or.fast.songs (-0.11590314) + Dance (0.08082942) + Folk (-0.05909564) + Country (-0.01479423) + Classical.music (-0.14498741) + Musical (0.22436097) + Pop (0.36687318) + Rock (-0.09733734) + Metal.or.Hardrock (-0.28268565) + Punk (0.20224133) + Hiphop..Rap (0.05800900) + Reggae..Ska (-0.24815254) + Swing..Jazz (0.01852198) + Rock.n.roll (-0.09779556) + Alternative (-0.08699481) + Latino (0.11950017) + Techno..Trance (-0.01727741) + Opera (-0.03241265) \newline
+
+Formula for Spending: \newline
+
+CV 1 = Finances (1.481981e-02) + Shopping.centres (7.333510e-01) + Branded.clothing (7.999385e-02) + Entertainment.spending (2.420934e-02) + Spending.on.looks (4.373356e-01) + Spending.on.gadgets (9.567982e-03) + Spending.on.healthy.eating (3.663121e-06) \newline
+
+B. \newline
+
+When we look at Structural Correlations of CV1 for Music -
+
+We notice that CV1 has a combination of positive and negative correlations \newline
+For example, when we see a positive correlation between Pop (0.72001733) and Music, we say that there is a strong positive correlation between Pop and Music which means to say that when pop improves, music improves too \newline
+When we look at the correlation between Techno..Trance (0.12351345) and Music, we say that there is a low/negligible positive correlation between Techno..Trance and Music which means that it's contribution to the music variable is quite low and it does not contribute as much as a strong or moderate correlation variable \newline
+When we look at the correlation between Metal.or.Hardrock (-0.64973432) and music, we see that there is a strong negative correlation between Metal.or.Hardrock and music which means that when if Metal.or.Hardrock increases then music will decrease and vice versa \newline
+When we look at the correlation between Slow.songs.or.fast.songs (-0.05544365) and Music, we say that there is a low/negligible negative correlation between Slow.songs.or.fast.songs and Music which means that it's contribution to the music variable is quite low and it might not contribute as much as a strong negative or moderate correlation variable \newline
+
+
+When we look at Structural Correlations of CV1 for Spending -
+
+We notice that CV1 has a combination of positive and negative correlations \newline
+For example, when we see a positive correlation between Shopping.centres (0.856359153) and Spending, we say that there is a strong positive correlation between Pop and Music which means to say that when Shopping.centres improves, Spending improves too \newline
+When we look at the correlation between Spending.on.healthy.eating (0.001913928) and Spending, we say that there is a low/negligible positive correlation between Spending.on.healthy.eating and Spending which means that it's contribution to the spending variable is quite low and it does not contribute as much as a strong or moderate correlation variable \newline
+When we look at the correlation between Entertainment.spending (-0.155593524) and Spending, we see that there is a strong negative correlation between Entertainment.spending and Spending which means that when if Entertainment.spending increases then spending will decrease and vice versa \newline
+
+
+C. \newline
+
+We conclude that the variable that contributes the most to obtaining the Music canonical variable is Pop (0.72001733) and the variable that contributes the least is Techno..Trance (0.12351345), which means that pop variable drives the music variable. It also might convey that young people are listening to pop genre the most\newline
+The variable that contributes the most to obtaining the Spending canonical variable is Shopping.centres (0.856359153) and the variable that contributes the least is Spending.on.healthy.eating (0.001913928), which means that spending at shopping centers effects the most for the spending variable.\newline
+We also see that there's a moderate positive relationship between Music and Spending canonical variables (0.4621615) which means that it's not as strong of a correlation where we can say that Music and Spending would go hand in hand but it's also not as low to indicate that they do not dependent on each other.   \newline
+
+# Extra Credit 
+
+## A
+
+```{r}
+#Displaying the dataframe
+head(travels)
+```
+
+```{r}
+#Converting the dataframe into a matrix 
+travels_new <- as.matrix(travels[,-1])
+rownames(travels_new) <- travels$Countries
+colnames(travels_new) <- c("Holidays","HalfDays", "Fulldays")
+```
+
+Mosaic Plot -
+
+```{r}
+#creating a mosaic plot
+mosaic(travels_new, shade = TRUE, legend = TRUE)
+```
+
+We observe that France/Germany has a lot of Full days off compared to any other country \newline
+We observe that Greece has a lot of half days off compared to any other country \newline
+
+## B
+
+Plotting the Correspondence Analysis - 
+
+```{r}
+#Fitting the model
+fit_ca = ca(travels_new)
+#plotting the fit
+plot(fit_ca)
+```
+
+We observe that Norway and half days corresponds less often which means that there are not a lot of half day offs in Norway \newline
+We see that France/Germany and Full days correspond more often which means that there are a lot of full day offs in France/Germany, we observe the same with Canada \newline
+We also observe that Greece and Full days correspond less often which means that there are not a lot of full day offs in Greece \newline
+
+## C
+
+In the case of Canada the highest days off are full days and the least are Holidays \newline
+In the case of France/Germany the highest days off are full days and the least are both holidays and half days \newline
+In the case of Greece the highest days off are half days and they don't have any full day offs \newline
+In the case of Norway the highest days off are full days and the least are Half days off \newline
+
+```{r}
+#Plotting the scale for the countries that demonstrate that days off profile 
+plot(fit_ca, mass = T, contrib = "absolute", map = "rowgreen", arrows = c(T,T))
+```
+
+\pagebreak
+
+# References
+
+1.Wolberg,William, Mangasarian,Olvi, Street,Nick, and Street,W.. (1995). Breast Cancer Wisconsin (Diagnostic). UCI Machine Learning Repository. https://doi.org/10.24432/C5DW2B. \newline
+
+2.American Cancer Society (n.d.). Fine Needle Aspiration (FNA) of the Breast. Cancer.org. https://www.cancer.org/cancer/types/breast-cancer/screening-tests-and-early-detection/breast-biopsy/fine-needle-aspiration-biopsy-of-the-breast.html#:~:text=During%20a%20fine%20needle%20aspiration,needle%20biopsy%20is%20often%20preferred). \newline
+
+3.Okudela K. (2014). An association between nuclear morphology and immunohistochemical expression of p53 and p16INK4A in lung cancer cells. Medical molecular morphology, 47(3), 130–136. https://doi.org/10.1007/s00795-013-0052-x
+
