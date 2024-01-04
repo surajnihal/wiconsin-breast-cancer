@@ -28,7 +28,7 @@ data <- read.csv("~/Downloads/data.csv")
 
 
 
-I will be applying Common Factor Analysis on the Breast Cancer Dataset -
+
 
 ## Introduction 
 
